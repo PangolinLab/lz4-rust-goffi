@@ -16,26 +16,52 @@ import (
 )
 
 func init() {
-	var libPath string
-	switch runtime.GOOS {
-	case "windows":
-		libPath = "bin/lz4.dll"
-	case "darwin":
-		libPath = "bin/liblz4.dylib"
-	default:
-		libPath = "bin/liblz4.so"
-	}
+    // 动态库最终路径
+    var libFile string
+    switch runtime.GOOS {
+    case "windows":
+        libFile = "bin/lz4.dll"
+    case "darwin":
+        libFile = "bin/lilz4.dylib"
+    default:
+        libFile = "bin/liblz4.so"
+    }
 
-	// 如果库不存在，则自动编译 Rust
-	if _, err := os.Stat(libPath); os.IsNotExist(err) {
-		// Rust 源码目录相对路径
-		rustDir := "../" // 从 aes_256_gcm_siv_ffi 到 src 的上级目录
-		cmd := exec.Command("cargo", "build", "--release", "--target-dir", "aes_256_gcm_siv_ffi/bin")
-		cmd.Dir = rustDir
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		_ = cmd.Run()
-	}
+    // 如果库不存在，则编译 Rust 并复制到 bin/
+    if _, err := os.Stat(libFile); os.IsNotExist(err) {
+        // Rust 源码目录（Cargo.toml 所在目录）
+        rustDir := "../" // 根据你的目录结构调整
+        buildCmd := exec.Command("cargo", "build", "--release")
+        buildCmd.Dir = rustDir
+        buildCmd.Stdout = os.Stdout
+        buildCmd.Stderr = os.Stderr
+        if err := buildCmd.Run(); err != nil {
+            panic("Failed to build Rust library: " + err.Error())
+        }
+
+        // 源文件路径（默认 target/release/）
+        var srcLib string
+        switch runtime.GOOS {
+        case "windows":
+            srcLib = filepath.Join(rustDir, "target", "release", "lz4.dll")
+        case "darwin":
+            srcLib = filepath.Join(rustDir, "target", "release", "liblz4.dylib")
+        default:
+            srcLib = filepath.Join(rustDir, "target", "release", "liblz4.so")
+        }
+
+        // 确保 bin 目录存在
+        _ = os.MkdirAll("bin", 0755)
+
+        // 复制库到 bin/
+        input, err := os.ReadFile(srcLib)
+        if err != nil {
+            panic("Failed to read Rust library: " + err.Error())
+        }
+        if err := os.WriteFile(libFile, input, 0644); err != nil {
+            panic("Failed to write library to bin/: " + err.Error())
+        }
+    }
 }
 
 // Compress 压缩数据，返回压缩后的字节切片（调用者负责复制/使用后释放）
